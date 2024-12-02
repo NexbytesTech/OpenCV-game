@@ -1,3 +1,6 @@
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow logs
+
 import mediapipe as mp
 import cv2
 import time
@@ -6,28 +9,27 @@ import random
 mp_drawing = mp.solutions.drawing_utils
 mp_hands = mp.solutions.hands
 
-# Game variables
+
 score = 0
 x_enemy = random.randint(50, 600)
 y_enemy = random.randint(50, 400)
 enemy_color = (0, 255, 0)
 start_time = time.time()
-time_limit = 30  # Game duration
+time_limit = 30  # Initial game duration
 last_move_time = time.time()
 
-# Functions
-def draw_enemy(image):
-    """Draws the enemy circle on the game screen."""
+def draw_enemy_as_ring(image):
+   
     global x_enemy, y_enemy, enemy_color
-    cv2.circle(image, (x_enemy, y_enemy), 25, enemy_color, -1)
+    cv2.circle(image, (x_enemy, y_enemy), 25, enemy_color, 5)  # Outer ring
 
 def draw_text_with_border(image, text, position, font, scale, color, thickness, border_color, border_thickness):
-    """Draws text with a border for better visibility."""
+   
     x, y = position
     cv2.putText(image, text, (x, y), font, scale, border_color, thickness + border_thickness)
     cv2.putText(image, text, (x, y), font, scale, color, thickness)
 
-# Main Game Loop
+
 video = cv2.VideoCapture(0)
 with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) as hands:
     while video.isOpened():
@@ -38,7 +40,7 @@ with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) a
         results = hands.process(image)
         image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
-        # Timer and Score Display
+        
         remaining_time = int(time_limit - (time.time() - start_time))
         draw_text_with_border(image, f"Time: {remaining_time}s", (30, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, (0, 0, 0), 2)
         draw_text_with_border(image, f"Score: {score}", (30, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, (0, 0, 0), 2)
@@ -47,14 +49,14 @@ with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) a
             print(f"Game Over! Final Score: {score}")
             break
 
-        # Move Enemy Randomly (Slower Movement)
-        if time.time() - last_move_time > 2:  # Increased the time interval
+        
+        if time.time() - last_move_time > 2:  # Slower movement interval
             x_enemy = random.randint(50, 600)
             y_enemy = random.randint(50, 400)
             last_move_time = time.time()
 
-        # Draw Enemy
-        draw_enemy(image)
+        
+        draw_enemy_as_ring(image)
 
         if results.multi_hand_landmarks:
             for hand in results.multi_hand_landmarks:
@@ -66,9 +68,10 @@ with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) a
                         )
                         if pixelCoordinatesLandmark:
                             cv2.circle(image, (pixelCoordinatesLandmark[0], pixelCoordinatesLandmark[1]), 15, (255, 0, 0), -1)
-                            # Check collision with enemy
+                            
                             if abs(pixelCoordinatesLandmark[0] - x_enemy) < 25 and abs(pixelCoordinatesLandmark[1] - y_enemy) < 25:
                                 score += 1
+                                time_limit += 3  # Increase game duration by 5 seconds
                                 x_enemy = random.randint(50, 600)
                                 y_enemy = random.randint(50, 400)
                                 enemy_color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
