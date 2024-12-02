@@ -2,66 +2,122 @@ import sys
 import random
 import time
 import cv2
-import mediapipe as mp
-from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QLabel, QVBoxLayout, QWidget, QDialog, QTableWidget, QTableWidgetItem
-from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QLabel, QPushButton, QVBoxLayout,
+    QHBoxLayout, QWidget, QComboBox, QTextEdit
+)
 from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtCore import QTimer, Qt
+import mediapipe as mp
 
-# Global leaderboard
-leaderboard = []
 
-# Main Window
-class MainWindow(QMainWindow):
+class GameWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Hand Tracking Game")
-        self.setGeometry(100, 100, 600, 400)
+        self.setStyleSheet("background-color: #1e1e1e; color: white;")
+        self.showFullScreen()
+
+        # Central Widget
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        self.layout = QVBoxLayout(self.central_widget)
+
+        # Header Layout
+        self.header_layout = QHBoxLayout()
+        self.layout.addLayout(self.header_layout)
+
+        self.level_selector = QComboBox(self)
+        self.level_selector.addItems(["Easy", "Medium", "Hard"])
+        self.level_selector.setStyleSheet(
+            "padding: 5px; font-size: 16px; color: black; background-color: lightgreen;"
+        )
+        self.level_selector.currentIndexChanged.connect(self.update_level_color)
+        self.header_layout.addWidget(self.level_selector)
 
         self.start_button = QPushButton("Start Game", self)
-        self.start_button.setGeometry(200, 100, 200, 50)
+        self.start_button.setStyleSheet("background-color: #00cc00; font-size: 18px; padding: 10px;")
         self.start_button.clicked.connect(self.start_game)
+        self.header_layout.addWidget(self.start_button)
 
-        self.leaderboard_button = QPushButton("Leaderboard", self)
-        self.leaderboard_button.setGeometry(200, 200, 200, 50)
-        self.leaderboard_button.clicked.connect(self.show_leaderboard)
+        self.stop_button = QPushButton("Stop Game", self)
+        self.stop_button.setStyleSheet("background-color: #cc0000; font-size: 18px; padding: 10px;")
+        self.stop_button.clicked.connect(self.stop_game)
+        self.header_layout.addWidget(self.stop_button)
+        self.stop_button.setEnabled(False)
 
-    def start_game(self):
-        self.game_window = GameWindow()
-        self.game_window.show()
+        self.exit_button = QPushButton("Exit", self)
+        self.exit_button.setStyleSheet("background-color: #333333; font-size: 18px; padding: 10px;")
+        self.exit_button.clicked.connect(self.close_application)
+        self.header_layout.addWidget(self.exit_button)
 
-    def show_leaderboard(self):
-        self.leaderboard_window = LeaderboardWindow()
-        self.leaderboard_window.show()
+        self.leaderboard_text = QTextEdit(self)
+        self.leaderboard_text.setReadOnly(True)
+        self.leaderboard_text.setStyleSheet("background-color: #333333; color: white; font-size: 14px; padding: 10px;")
+        self.layout.addWidget(self.leaderboard_text)
 
-# Game Window
-class GameWindow(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Game")
-        self.setGeometry(100, 100, 800, 600)
+        # Game Display Area
+        self.image_label = QLabel(self)
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setStyleSheet("border: 2px solid #00ff00; background-color: #000;")
+        self.layout.addWidget(self.image_label, alignment=Qt.AlignCenter)
+
+        # Game Variables
+        self.cap = None
+        self.running = False
         self.score = 0
+        self.time_limit = 30
+        self.enemy_color = (0, 255, 0)  # Consistent enemy color
+        self.x_enemy = random.randint(100, 700)
+        self.y_enemy = random.randint(100, 500)
+        self.enemy_last_seen = time.time()
         self.start_time = time.time()
-        self.time_limit = 30  # Initial game time
         self.last_move_time = time.time()
-        self.x_enemy = random.randint(50, 600)
-        self.y_enemy = random.randint(50, 400)
-        self.enemy_color = (0, 255, 0)
-        self.running = True
+        self.difficulty_factor = 1.0
 
-        # OpenCV Video Capture
-        self.cap = cv2.VideoCapture(0)
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.update_frame)
-        self.timer.start(30)
-
-        # Mediapipe setup
+        # Mediapipe Hand Detection
         self.mp_hands = mp.solutions.hands.Hands(
-            min_detection_confidence=0.8, min_tracking_confidence=0.5
+            static_image_mode=False,
+            max_num_hands=1,
+            min_detection_confidence=0.8,
+            min_tracking_confidence=0.8,
         )
 
-        # Layout
-        self.image_label = QLabel(self)
-        self.image_label.setGeometry(0, 0, 800, 600)
+        # Timer for Game Updates
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_frame)
+
+        # Display Leaderboard
+        self.update_leaderboard()
+
+    def update_level_color(self):
+        level = self.level_selector.currentText()
+        if level == "Easy":
+            self.level_selector.setStyleSheet("padding: 5px; font-size: 16px; color: black; background-color: lightgreen;")
+        elif level == "Medium":
+            self.level_selector.setStyleSheet("padding: 5px; font-size: 16px; color: black; background-color: yellow;")
+        elif level == "Hard":
+            self.level_selector.setStyleSheet("padding: 5px; font-size: 16px; color: black; background-color: red;")
+
+    def start_game(self):
+        # Set difficulty based on level
+        level = self.level_selector.currentText()
+        if level == "Easy":
+            self.difficulty_factor = 1.0
+        elif level == "Medium":
+            self.difficulty_factor = 1.5
+        elif level == "Hard":
+            self.difficulty_factor = 2.0
+
+        self.running = True
+        self.cap = cv2.VideoCapture(0)
+        self.score = 0
+        self.time_limit = 30
+        self.start_time = time.time()
+        self.enemy_last_seen = time.time()
+        self.stop_button.setEnabled(True)
+        self.start_button.setEnabled(False)
+        self.timer.start(20)  # Update every 20 ms
 
     def update_frame(self):
         if not self.running:
@@ -75,10 +131,15 @@ class GameWindow(QWidget):
         results = self.mp_hands.process(image)
 
         # Draw enemy
-        cv2.circle(image, (self.x_enemy, self.y_enemy), 25, self.enemy_color, 5)
+        if time.time() - self.enemy_last_seen > 3:  # Enemy disappears after 3 seconds
+            self.x_enemy = random.randint(100, image.shape[1] - 100)
+            self.y_enemy = random.randint(100, image.shape[0] - 100)
+            self.enemy_last_seen = time.time()
+
+        cv2.circle(image, (self.x_enemy, self.y_enemy), 25, self.enemy_color, -1)
 
         # Timer and score display
-        remaining_time = int(self.time_limit - (time.time() - self.start_time))
+        remaining_time = int(self.time_limit - (time.time() - self.start_time) * self.difficulty_factor)
         cv2.putText(image, f"Time: {remaining_time}s", (30, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
         cv2.putText(image, f"Score: {self.score}", (30, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
@@ -87,63 +148,65 @@ class GameWindow(QWidget):
             self.end_game()
             return
 
-        # Move enemy randomly
-        if time.time() - self.last_move_time > 2:
-            self.x_enemy = random.randint(50, 600)
-            self.y_enemy = random.randint(50, 400)
-            self.last_move_time = time.time()
-
-        # Check for hand collisions
+        # Check for collisions and update score
         if results.multi_hand_landmarks:
             for hand_landmarks in results.multi_hand_landmarks:
-                for point in mp.solutions.hands.HandLandmark:
-                    if point == mp.solutions.hands.HandLandmark.INDEX_FINGER_TIP:
-                        landmark = hand_landmarks.landmark[point]
-                        x, y = int(landmark.x * image.shape[1]), int(landmark.y * image.shape[0])
-                        cv2.circle(image, (x, y), 15, (255, 0, 0), -1)
-                        if abs(x - self.x_enemy) < 25 and abs(y - self.y_enemy) < 25:
-                            self.score += 1
-                            self.time_limit += 5
-                            self.x_enemy = random.randint(50, 600)
-                            self.y_enemy = random.randint(50, 400)
-                            self.enemy_color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+                # Index finger tip
+                index_tip = hand_landmarks.landmark[mp.solutions.hands.HandLandmark.INDEX_FINGER_TIP]
+                x = int(index_tip.x * image.shape[1])
+                y = int(index_tip.y * image.shape[0])
 
-        # Convert the image to QImage for PyQt5
+                # Draw fingertip
+                cv2.circle(image, (x, y), 15, (255, 0, 0), -1)
+
+                # Check for collision
+                if abs(x - self.x_enemy) < 25 and abs(y - self.y_enemy) < 25:
+                    self.score += 1
+                    self.time_limit += 5
+                    self.x_enemy = random.randint(100, image.shape[1] - 100)
+                    self.y_enemy = random.randint(100, image.shape[0] - 100)
+                    self.enemy_last_seen = time.time()
+
+        # Convert frame to QPixmap
         h, w, ch = image.shape
         q_image = QImage(image.data, w, h, ch * w, QImage.Format_RGB888)
         self.image_label.setPixmap(QPixmap.fromImage(q_image))
 
+    def stop_game(self):
+        self.end_game()
+        self.start_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
+
     def end_game(self):
         self.running = False
         self.timer.stop()
-        self.cap.release()
-        leaderboard.append(self.score)
-        self.close()
+        if self.cap:
+            self.cap.release()
+        cv2.destroyAllWindows()
 
-# Leaderboard Window
-class LeaderboardWindow(QDialog):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Leaderboard")
-        self.setGeometry(100, 100, 400, 300)
+        # Save score to leaderboard
+        with open("leaderboard.txt", "a") as f:
+            f.write(f"Score: {self.score}\n")
 
-        self.layout = QVBoxLayout(self)
-        self.table = QTableWidget(self)
-        self.table.setColumnCount(2)
-        self.table.setHorizontalHeaderLabels(["Rank", "Score"])
         self.update_leaderboard()
-        self.layout.addWidget(self.table)
 
     def update_leaderboard(self):
-        sorted_scores = sorted(leaderboard, reverse=True)
-        self.table.setRowCount(len(sorted_scores))
-        for i, score in enumerate(sorted_scores):
-            self.table.setItem(i, 0, QTableWidgetItem(str(i + 1)))
-            self.table.setItem(i, 1, QTableWidgetItem(str(score)))
+        try:
+            with open("leaderboard.txt", "r") as f:
+                scores = f.readlines()
+        except FileNotFoundError:
+            scores = []
 
-# Run the App
+        scores = sorted([int(s.strip().split(": ")[1]) for s in scores if s.strip()], reverse=True)[:5]
+        self.leaderboard_text.setPlainText("\n".join([f"{i + 1}. Score: {score}" for i, score in enumerate(scores)]))
+
+    def close_application(self):
+        self.stop_game()
+        self.close()
+
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    main_window = MainWindow()
-    main_window.show()
+    window = GameWindow()
+    window.show()
     sys.exit(app.exec_())

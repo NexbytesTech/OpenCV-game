@@ -30,7 +30,7 @@ def draw_text_with_border(image, text, position, font, scale, color, thickness, 
     cv2.putText(image, text, (x, y), font, scale, color, thickness)
 
 
-video = cv2.VideoCapture(0)
+video = cv2.VideoCapture(1)
 with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) as hands:
     while video.isOpened():
         _, frame = video.read()
