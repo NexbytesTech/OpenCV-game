@@ -5,3 +5,6 @@ Score: 33
 Score: 33
 Score: 14
 Score: 14
+Score: 22
+Score: 22
+Score: 2
