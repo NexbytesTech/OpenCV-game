@@ -9,3 +9,6 @@ Score: 22
 Score: 22
 Score: 2
 Score: 5
+Score: 15
+Score: 9
+Score: 9
